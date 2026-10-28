@@ -46,33 +46,58 @@ Prior using theses binding you need to compile the the library **dhc_lib.so** fo
 
 ```
 $ make clean
-rm -f *.o *~ app audio_demo dhc_lib.so
+rm -f *.o *~ tests/*.o app audio_demo audio_block_demo test_block dhc_lib.so
 $ make lib
 gcc -O0 -g -Wall -std=gnu11  -I. -shared -fPIC -o dhc_lib.so dhc.c
 cp dhc_lib.so ./python_bindings/
 ```
 
-Copy **dhc_lib.so** and **dhc.py** into your python application and use **import dhc** for accessing DHC functions. See **dhc.main()** function for usage example.
+Copy **dhc_lib.so** and **dhc.py** into your python application and use **import dhc** for accessing DHC functions. See **dhc.main()** function for usage example. **python_bindings/test_block.py** has equivalent coverage for the block API (`dhc_ctx_t`/`dhc_block_compress()`/`dhc_block_decompress()`), run it the same way (`python3 test_block.py`) after `make lib`.
 
-## Examples
+## Tests and examples
 
-A complete example can be seen in the **audio_demo.c** file. In this example, real samples taken from a microphone (**audio.h**) are compressed using DHC. In this example it is possible to turn on or off the custom mapping through the define APP_USE_CUSTOM_MAPPING.
+All demo and test programs live under **tests/**; the resulting binaries (and `dhc_lib.so`) are still produced at the project root by `make`.
+
+A complete example can be seen in the **tests/audio_demo.c** file. In this example, real samples taken from a microphone (**tests/audio.h**) are compressed using DHC. In this example it is possible to turn on or off the custom mapping through the define APP_USE_CUSTOM_MAPPING. **tests/audio_block_demo.c** is the same example rewritten against the block API, feeding/retrieving samples in fixed-size chunks (APP_BLOCK_SIZE) instead of one shot, to show it produces the exact same result.
 
 ```
 $ make
-gcc -O0 -g -Wall -std=gnu11  -I. -c app.c  -o app.o
-gcc -O0 -g -Wall -std=gnu11  -I. -c dhc.c  -o dhc.o
-gcc -O0 -g -Wall -std=gnu11  -I. -o app app.o dhc.o -lm 
-gcc -O0 -g -Wall -std=gnu11  -I. -c audio_demo.c  -o audio_demo.o
-gcc -O0 -g -Wall -std=gnu11  -I. -o audio_demo audio_demo.o dhc.o -lm
+gcc -O0 -g -Wall -std=gnu11 -I. -c tests/app.c  -o tests/app.o
+gcc -O0 -g -Wall -std=gnu11 -I. -c dhc.c  -o dhc.o
+gcc -O0 -g -Wall -std=gnu11 -I. -o app tests/app.o dhc.o -lm
+gcc -O0 -g -Wall -std=gnu11 -I. -c tests/audio_demo.c  -o tests/audio_demo.o
+gcc -O0 -g -Wall -std=gnu11 -I. -o audio_demo tests/audio_demo.o dhc.o -lm
+gcc -O0 -g -Wall -std=gnu11 -I. -c tests/audio_block_demo.c  -o tests/audio_block_demo.o
+gcc -O0 -g -Wall -std=gnu11 -I. -o audio_block_demo tests/audio_block_demo.o dhc.o -lm
 Done
 
 $ ./audio_demo
 Compressor rate (21.15%)
 Result: OK
+
+$ ./audio_block_demo
+Compressor rate (21.15%)
+Result: OK
 ```
 
-Furthermore, as the effectiveness of the DHC depends on the differences between the values of the samples, a file called **app.c** was also created to evaluate the behavior of DHC given a possible range for input values and a data vector size. Random values are generated within the specified range and a compression ratio is then presented as a result of the simulation.
+**tests/test_block.c** exercises the block API directly: compressing/decompressing split into blocks of varying and irregular sizes (including sizes that force a Huffman code to straddle a block boundary), with and without a custom mapping, forcing partial consumption with undersized buffers, and `dhc_file_ctx_init()`/`dhc_file_block_write()` against `dhc_file_write()`. Run it with `make test`:
+
+```
+$ make test
+...
+./test_block
+[blocks of 1 sample, decode chunks of 1 byte] OK (bits=20906)
+[irregular blocks, no map, decode chunks of 3 bytes] OK (bits=20906)
+[irregular blocks, custom map, decode chunks of 5 bytes] OK (bits=17590)
+[single block, no map, decode in one chunk] OK (bits=20906)
+[partial_compress] OK (consumed all 50 samples across small 8 byte buffers)
+[partial_decompress] OK (decoded all 50 samples 3 at a time)
+[file_block_write] OK (matches dhc_file_write byte for byte)
+
+ALL TESTS PASSED
+```
+
+Furthermore, as the effectiveness of the DHC depends on the differences between the values of the samples, a file called **tests/app.c** was also created to evaluate the behavior of DHC given a possible range for input values and a data vector size. Random values are generated within the specified range and a compression ratio is then presented as a result of the simulation.
 
 For example, suppose your samples typically range from -50 to 150 and your data vector has 512 samples. It is possible to evaluate the DHC behavior for this case through the following command line (we will repeat this test 10 times):
 
@@ -123,7 +148,8 @@ Fields: Delta,Compress_reduction,skipped,skipped_per,mapped,mapped_perc
 
 # Compiling
 
-Just type **make** to generate the audio demo (audio_demo) and the evaluation applications (app). 
+Just type **make** to generate the audio demos (audio_demo, audio_block_demo) and the evaluation application (app).
+Type **make test** to build and run the block API test suite (test_block).
 For python library, type **make lib** to generate dhc_lib.so. 
 
 # Limitations

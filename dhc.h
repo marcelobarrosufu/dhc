@@ -37,6 +37,34 @@ typedef struct dhc_ctx_s
 
 bool dhc_file_write(char *file_name, uint8_t *data, uint32_t size_bits, dhc_compress_mode_t mode);
 
+typedef struct dhc_file_ctx_s
+{
+    FILE *fp;
+    uint32_t size_bits;
+} dhc_file_ctx_t;
+
+/*
+@brief open file_name and write its DHC_COMPRESS_MODE_HUFFMAN_MAPPED header, to be filled in
+with calls to dhc_file_block_write()
+@param[out] ctx context to be initialized (allocated by the caller, e.g. on the stack)
+@param[in] file_name file to create (same format as dhc_file_write())
+@param[in] mode compression mode written to the header
+@return true in case of success or false if the operation fails
+*/
+bool dhc_file_ctx_init(dhc_file_ctx_t *ctx, char *file_name, dhc_compress_mode_t mode);
+
+/*
+@brief append one block of compressed data to the file opened by dhc_file_ctx_init(), keeping
+state across calls in ctx. On the last block, patches the header with the final size in bits
+and closes the file
+@param[in] ctx context initialized with dhc_file_ctx_init()
+@param[in] data block of compressed data to append (as returned by dhc_block_compress())
+@param[in] size_bits size of data, in bits
+@param[in] last_block true if this is the last block of the stream
+@return true in case of success or false if the operation fails
+*/
+bool dhc_file_block_write(dhc_file_ctx_t *ctx, uint8_t *data, uint32_t size_bits, bool last_block);
+
 /*
 @brief initialize a context used by dhc_block_compress()/dhc_block_decompress(), fixing its direction
 @param[out] ctx context to be initialized (allocated by the caller, e.g. on the stack)

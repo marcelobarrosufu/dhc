@@ -737,3 +737,75 @@ bool dhc_file_write(char *file_name, uint8_t *data, uint32_t size_bits, dhc_comp
 
     return ret;
 }
+
+bool dhc_file_ctx_init(dhc_file_ctx_t *ctx, char *file_name, dhc_compress_mode_t mode)
+{
+    uint8_t header[5];
+    uint8_t *pbuf;
+
+    if((ctx == 0)||(file_name == 0))
+        return false;
+
+    ctx->fp = fopen(file_name,"w+b");
+
+    if(ctx->fp == NULL)
+        return false;
+
+    ctx->size_bits = 0;
+
+    pbuf = header;
+    dhc_io_put8_tb_ap(mode,pbuf);
+    dhc_io_put32_tb_ap(ctx->size_bits,pbuf);
+
+    if(fwrite(header,1,5,ctx->fp) != 5)
+    {
+        fclose(ctx->fp);
+        ctx->fp = 0;
+        return false;
+    }
+
+    return true;
+}
+
+bool dhc_file_block_write(dhc_file_ctx_t *ctx, uint8_t *data, uint32_t size_bits, bool last_block)
+{
+    uint8_t header[4];
+    uint8_t *pbuf;
+    uint32_t size;
+    bool ret;
+
+    if((ctx == 0)||(ctx->fp == 0)||((data == 0)&&(size_bits != 0)))
+        return false;
+
+    size = size_bits % 8 == 0 ? size_bits / 8 : size_bits/8 + 1;
+
+    if((size > 0)&&(fwrite(data,1,size,ctx->fp) != size))
+    {
+        fclose(ctx->fp);
+        ctx->fp = 0;
+        return false;
+    }
+
+    ctx->size_bits += size_bits;
+
+    if(!last_block)
+        return true;
+
+    ret = true;
+
+    if(fseek(ctx->fp,1,SEEK_SET) != 0)
+        ret = false;
+    else
+    {
+        pbuf = header;
+        dhc_io_put32_tb_ap(ctx->size_bits,pbuf);
+
+        if(fwrite(header,1,4,ctx->fp) != 4)
+            ret = false;
+    }
+
+    fclose(ctx->fp);
+    ctx->fp = 0;
+
+    return ret;
+}
