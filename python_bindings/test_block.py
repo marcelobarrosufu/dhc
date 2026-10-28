@@ -13,7 +13,7 @@ import dhc
 
 def block_compress_all(samples,block_sizes,map=[]):
     ctx = dhc.dhc_ctx_t()
-    dhc.ctx_init(ctx,dhc.DHC_CTX_DIR_COMPRESS,map)
+    dhc.ctx_init(ctx,dhc.DHC_CTX_COMPRESS,map)
 
     compressed = bytearray()
     total_bits = 0
@@ -36,7 +36,7 @@ def block_compress_all(samples,block_sizes,map=[]):
 
 def block_decompress_all(data,data_size_bits,sample_count,chunk_bytes,map=[]):
     ctx = dhc.dhc_ctx_t()
-    dhc.ctx_init(ctx,dhc.DHC_CTX_DIR_DECOMPRESS,map)
+    dhc.ctx_init(ctx,dhc.DHC_CTX_DECOMPRESS,map)
 
     decoded = []
     bit_pos = 0
@@ -75,7 +75,7 @@ def test_roundtrip(name,samples,block_sizes,decode_chunk_bytes,map=[]):
 def test_partial_compress():
     samples = [randint(-20,20) for _ in range(50)]
     ctx = dhc.dhc_ctx_t()
-    dhc.ctx_init(ctx,dhc.DHC_CTX_DIR_COMPRESS,[])
+    dhc.ctx_init(ctx,dhc.DHC_CTX_COMPRESS,[])
 
     total_consumed = 0
 
@@ -100,7 +100,7 @@ def test_partial_decompress():
     compressed = bytes(output[0:(compressed_bits+7)//8])
 
     ctx = dhc.dhc_ctx_t()
-    dhc.ctx_init(ctx,dhc.DHC_CTX_DIR_DECOMPRESS,[])
+    dhc.ctx_init(ctx,dhc.DHC_CTX_DECOMPRESS,[])
 
     decoded = []
     bit_pos = 0

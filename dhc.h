@@ -19,8 +19,8 @@ typedef enum dhc_compress_mode_e
 
 typedef enum dhc_ctx_dir_e
 {
-    DHC_CTX_DIR_COMPRESS = 0,
-    DHC_CTX_DIR_DECOMPRESS,
+    DHC_CTX_COMPRESS = 0,
+    DHC_CTX_DECOMPRESS,
 } dhc_ctx_dir_t;
 
 typedef struct dhc_ctx_s
@@ -68,7 +68,7 @@ bool dhc_file_block_write(dhc_file_ctx_t *ctx, uint8_t *data, uint32_t size_bits
 /*
 @brief initialize a context used by dhc_block_compress()/dhc_block_decompress(), fixing its direction
 @param[out] ctx context to be initialized (allocated by the caller, e.g. on the stack)
-@param[in] dir context direction, DHC_CTX_DIR_COMPRESS or DHC_CTX_DIR_DECOMPRESS
+@param[in] dir context direction, DHC_CTX_COMPRESS or DHC_CTX_DECOMPRESS
 @param[in] map huffman mapping (if using any special huffman map), otherwise pass 0. Must remain valid for the whole lifetime of ctx
 @return true in case of success or false if the operation fails
 */
@@ -76,7 +76,7 @@ bool dhc_ctx_init(dhc_ctx_t *ctx, dhc_ctx_dir_t dir, uint8_t *map);
 
 /*
 @brief compress one block of a (possibly larger) stream of samples, keeping state across calls in ctx
-@param[in] ctx context initialized with dhc_ctx_init(&ctx, DHC_CTX_DIR_COMPRESS, map)
+@param[in] ctx context initialized with dhc_ctx_init(&ctx, DHC_CTX_COMPRESS, map)
 @param[out] data block output buffer (must be allocated before calling)
 @param[in,out] data_size_bits in: capacity of data, in bits; out: bits actually written (never writes beyond the input capacity)
 @param[in] samples sample data for this block (must be a vector of int16_t)
@@ -89,7 +89,7 @@ bool dhc_block_compress(dhc_ctx_t *ctx, uint8_t *data, uint32_t *data_size_bits,
 
 /*
 @brief decompress one block of a (possibly larger) compressed stream, keeping state across calls in ctx
-@param[in] ctx context initialized with dhc_ctx_init(&ctx, DHC_CTX_DIR_DECOMPRESS, map)
+@param[in] ctx context initialized with dhc_ctx_init(&ctx, DHC_CTX_DECOMPRESS, map)
 @param[out] samples output vector where decompressed samples will be storaged (must be allocated before calling)
 @param[in,out] sample_size in: capacity of samples, in int16_t samples; out: number of samples actually decoded
 @param[in] data compressed data for this block (must be a vector of uint8_t)

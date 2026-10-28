@@ -16,8 +16,8 @@ DHC_TABLE_SIZE = (DHC_MAX_BITS+1)
 dhc_lib_file = './dhc_lib.so'
 dhc_functions = CDLL(dhc_lib_file)
 
-DHC_CTX_DIR_COMPRESS   = 0
-DHC_CTX_DIR_DECOMPRESS = 1
+DHC_CTX_COMPRESS   = 0
+DHC_CTX_DECOMPRESS = 1
 
 class dhc_ctx_t(Structure):
     # mirrors struct dhc_ctx_s from dhc.h, field for field, same order

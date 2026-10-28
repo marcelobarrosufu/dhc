@@ -72,7 +72,7 @@ void audio_block_demo(void)
     printf("Compressor rate (%2.2f%%)\r\n",comp_rate);
 
     // compress audio_var as if it arrived incrementally, APP_BLOCK_SIZE samples at a time
-    dhc_ctx_init(&ctx,DHC_CTX_DIR_COMPRESS,map);
+    dhc_ctx_init(&ctx,DHC_CTX_COMPRESS,map);
     compressed_size_bits = 0;
     pos = 0;
 
@@ -90,7 +90,7 @@ void audio_block_demo(void)
 
     // decompress the resulting stream in chunks of APP_BLOCK_SIZE bytes, unrelated to the
     // block sizes used above, to show decoding does not need to match them
-    dhc_ctx_init(&ctx,DHC_CTX_DIR_DECOMPRESS,map);
+    dhc_ctx_init(&ctx,DHC_CTX_DECOMPRESS,map);
     decode_size = 0;
     pos = 0;
 

@@ -46,7 +46,7 @@ static uint32_t block_compress_all(uint8_t *out, int16_t *samples, uint32_t *blo
     uint32_t out_byte_pos = 0;
     uint32_t total_bits = 0;
 
-    dhc_ctx_init(&ctx,DHC_CTX_DIR_COMPRESS,map);
+    dhc_ctx_init(&ctx,DHC_CTX_COMPRESS,map);
 
     for(uint32_t b = 0 ; b < n_blocks ; b++)
     {
@@ -81,7 +81,7 @@ static uint32_t block_decompress_all(int16_t *out, uint32_t out_capacity, uint8_
     uint32_t bit_pos = 0;
     uint32_t decoded = 0;
 
-    dhc_ctx_init(&ctx,DHC_CTX_DIR_DECOMPRESS,map);
+    dhc_ctx_init(&ctx,DHC_CTX_DECOMPRESS,map);
 
     while(bit_pos < data_size_bits)
     {
@@ -178,7 +178,7 @@ static bool test_partial_compress(void)
     bool pass = true;
 
     gen_data(samples,50,-20,20);
-    dhc_ctx_init(&ctx,DHC_CTX_DIR_COMPRESS,0);
+    dhc_ctx_init(&ctx,DHC_CTX_COMPRESS,0);
 
     while(total_consumed < 50)
     {
@@ -229,7 +229,7 @@ static bool test_partial_decompress(void)
     gen_data(samples,50,-20,20);
     dhc_compress(compressed,&compressed_bits,samples,50,0);
 
-    dhc_ctx_init(&ctx,DHC_CTX_DIR_DECOMPRESS,0);
+    dhc_ctx_init(&ctx,DHC_CTX_DECOMPRESS,0);
 
     uint32_t bit_pos = 0;
 
@@ -290,7 +290,7 @@ static bool test_file_block_write(void)
     dhc_compress(ref_compressed,&ref_bits,samples,200,0);
     dhc_file_write("test_file_write_ref.bin",ref_compressed,ref_bits,DHC_COMPRESS_MODE_NONE);
 
-    dhc_ctx_init(&ctx,DHC_CTX_DIR_COMPRESS,0);
+    dhc_ctx_init(&ctx,DHC_CTX_COMPRESS,0);
     dhc_file_ctx_init(&file_ctx,"test_file_block_write.bin",DHC_COMPRESS_MODE_NONE);
 
     for(uint32_t b = 0 ; b < n ; b++)

@@ -440,7 +440,7 @@ bool dhc_block_compress(dhc_ctx_t *ctx, uint8_t *data, uint32_t *data_size_bits,
     if((ctx == 0)||(data == 0)||(data_size_bits == 0)||(samples == 0)||(sample_size == 0))
         return false;
 
-    if(ctx->dir != DHC_CTX_DIR_COMPRESS)
+    if(ctx->dir != DHC_CTX_COMPRESS)
         return false;
 
     dhc_stream_init(&ctrl,data,0,true);
@@ -510,7 +510,7 @@ bool dhc_compress(uint8_t *output, uint32_t *output_size_bits, int16_t *data, ui
     if((size < 1)||(data == 0)||(output == 0)||(output_size_bits == 0))
         return false;
 
-    dhc_ctx_init(&ctx,DHC_CTX_DIR_COMPRESS,map);
+    dhc_ctx_init(&ctx,DHC_CTX_COMPRESS,map);
 
     sample_size = size;
     *output_size_bits = UINT32_MAX;
@@ -612,7 +612,7 @@ bool dhc_block_decompress(dhc_ctx_t *ctx, int16_t *samples, uint32_t *sample_siz
     if((ctx == 0)||(samples == 0)||(sample_size == 0)||(data == 0)||(data_size_bits == 0))
         return false;
 
-    if(ctx->dir != DHC_CTX_DIR_DECOMPRESS)
+    if(ctx->dir != DHC_CTX_DECOMPRESS)
         return false;
 
     pmap = ctx->map ? ctx->map_bin : 0;
@@ -688,7 +688,7 @@ bool dhc_decompress(int16_t *output, uint32_t *output_size, uint8_t *data, uint3
     if((data_size_bits < 2)||(output == 0)||(data == 0))
         return false;
 
-    dhc_ctx_init(&ctx,DHC_CTX_DIR_DECOMPRESS,map);
+    dhc_ctx_init(&ctx,DHC_CTX_DECOMPRESS,map);
 
     data_size_bits_var = data_size_bits;
     *output_size = UINT32_MAX;

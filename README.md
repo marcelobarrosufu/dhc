@@ -31,7 +31,7 @@ Data decompression can be done with the **dhc_decompress()** function.
 
 ```c
 dhc_ctx_t ctx;
-dhc_ctx_init(&ctx, DHC_CTX_DIR_COMPRESS, map);   // or DHC_CTX_DIR_DECOMPRESS
+dhc_ctx_init(&ctx, DHC_CTX_COMPRESS, map);   // or DHC_CTX_DECOMPRESS
 
 // for each block, until the stream is over:
 dhc_block_compress(&ctx, data, &data_size_bits, samples, &sample_size, last_block);
