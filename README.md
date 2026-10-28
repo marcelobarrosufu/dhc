@@ -25,6 +25,20 @@ The use of DHC can be summarized in 2 steps:
 
 Data decompression can be done with the **dhc_decompress()** function.
 
+## Block API
+
+**dhc_compress()**/**dhc_decompress()** need the whole sample/compressed vector available in memory at once. When samples arrive incrementally (e.g. streamed from a sensor in small chunks), use the block API instead, which keeps state across calls in a **dhc_ctx_t** context:
+
+```c
+dhc_ctx_t ctx;
+dhc_ctx_init(&ctx, DHC_CTX_DIR_COMPRESS, map);   // or DHC_CTX_DIR_DECOMPRESS
+
+// for each block, until the stream is over:
+dhc_block_compress(&ctx, data, &data_size_bits, samples, &sample_size, last_block);
+```
+
+`data_size_bits`/`sample_size` work as capacity on input and actual size on output: pass the size of the buffer you are offering, and the function overwrites it with what it actually wrote/consumed. If a buffer fills up before all the input is processed, the call still succeeds and simply consumes less than offered — check the updated size to know how much to resend on the next call. `dhc_compress()`/`dhc_decompress()` are themselves implemented as a single call to the block API with `last_block = true` and no capacity limit.
+
 ## Python bindings
 
 The **dhc.py** file inside directory **python_bindings** presents bindings for the python language using ctypes library.
