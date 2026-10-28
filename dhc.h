@@ -28,7 +28,7 @@ typedef struct dhc_ctx_s
     dhc_ctx_dir_t dir;
     int16_t prev_value;
     uint8_t *map;
-    uint8_t map_rev[DHC_TABLE_SIZE];
+    uint8_t map_bin[DHC_TABLE_SIZE];
     uint8_t carry_byte;
     uint8_t carry_bits;
     uint64_t bit_acc;

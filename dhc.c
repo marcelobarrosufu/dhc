@@ -1,7 +1,7 @@
 /*
 An implementation of Delta/Huffman Compressor (DHC) for embedded systems.
 
-Copyright (c) 2022 
+Copyright (c) 2022
 Marcelo Barros de Almeida <marcelobarrosalmeida@gmail.com>
 Marden Fagundes <maf_cadastro-github@yahoo.com>
 */
@@ -20,12 +20,17 @@ Marden Fagundes <maf_cadastro-github@yahoo.com>
 #define DHC_DEBUG 0
 #define DHC_ABS(x)     (((x) < 0) ? -(x) : (x))
 
+// worst case for a single symbol: num_bits_prefix(14) + num_bits_index(16), see dhc_table[16]
+#define DHC_MAX_SYMBOL_BITS 30
+
 typedef struct dhc_stream_ctrl_s
 {
     uint8_t *stream;
     uint16_t byte_pos;
     uint8_t bit_pos;
     uint32_t size_bits;
+    uint64_t bit_acc;
+    uint8_t bit_acc_bits;
 } dhc_stream_ctrl_t;
 
 struct dhc_table_s
@@ -61,11 +66,11 @@ static void dhc_io_put32_tb_apr(uint32_t value, uint8_t **buf)
     *buf += 4;
 }
 
-#define dhc_io_put8_tb_ap(v,x)  dhc_io_put8_tb_apr(v,&x) 
-#define dhc_io_put32_tb_ap(v,x) dhc_io_put32_tb_apr(v,&x) 
+#define dhc_io_put8_tb_ap(v,x)  dhc_io_put8_tb_apr(v,&x)
+#define dhc_io_put32_tb_ap(v,x) dhc_io_put32_tb_apr(v,&x)
 
 // prefix bits, index bits, prefix value, prefix string
-struct dhc_table_s dhc_table[] = { 
+struct dhc_table_s dhc_table[] = {
     /*  0 */ { 2,  0, 0x00000000, (uint8_t *) "00"},
     /*  1 */ { 3,  1, 0x00000002, (uint8_t *) "010"},
     /*  2 */ { 3,  2, 0x00000006, (uint8_t *) "011"},
@@ -123,7 +128,7 @@ static uint8_t dhc_log2_up_abs(int16_t _value)
 static uint32_t dhc_pow2(uint8_t value)
 {
     uint32_t pow = 1;
-    
+
     if(value)
     {
         while(value)
@@ -166,18 +171,18 @@ static void dhc_hist_print(uint32_t *hist, uint8_t *map)
 #endif
 }
 
-static void dhc_hist_bubble_sort(uint32_t *hist, uint8_t *idx, size_t size) 
-{ 
-    size_t i, j; 
+static void dhc_hist_bubble_sort(uint32_t *hist, uint8_t *idx, size_t size)
+{
+    size_t i, j;
 
-    for (i = 0; i < size-1; i++)     
-    {     
+    for (i = 0; i < size-1; i++)
+    {
         for (j = 0; j < size-i-1; j++)
         {
             if (hist[j] < hist[j+1])
             {
                 uint32_t t = hist[j];
-                hist[j] = hist[j+1]; 
+                hist[j] = hist[j+1];
                 hist[j+1] = t;
 
                 uint8_t v = idx[j];
@@ -208,6 +213,8 @@ static void dhc_stream_init(dhc_stream_ctrl_t *ctrl, uint8_t *stream, uint16_t s
     ctrl->stream = stream;
     ctrl->bit_pos = 0;
     ctrl->byte_pos = 0;
+    ctrl->bit_acc = 0;
+    ctrl->bit_acc_bits = 0;
 
     if(compress)
         ctrl->stream[0] = 0;
@@ -218,6 +225,13 @@ static uint32_t dhc_stream_size_bits_get(dhc_stream_ctrl_t *ctrl)
     return ctrl->byte_pos*8 + ctrl->bit_pos;
 }
 
+// bits still available to read in ctrl: whatever is pending in bit_acc (carried over from a
+// previous block) plus whatever is still unread in stream, up to size_bits
+static uint32_t dhc_stream_avail_get(dhc_stream_ctrl_t *ctrl)
+{
+    return ctrl->bit_acc_bits + (ctrl->size_bits - dhc_stream_size_bits_get(ctrl));
+}
+
 static void dhc_stream_add(dhc_stream_ctrl_t *ctrl, uint32_t bit_stream, uint8_t size)
 {
     uint8_t remain = size;
@@ -226,7 +240,7 @@ static void dhc_stream_add(dhc_stream_ctrl_t *ctrl, uint32_t bit_stream, uint8_t
         return;
 
     ctrl->stream[ctrl->byte_pos] |= (uint8_t)(bit_stream << ctrl->bit_pos);
-         
+
     if(ctrl->bit_pos + size >= 8)
     {
         remain -= (8-ctrl->bit_pos);
@@ -260,6 +274,64 @@ static void dhc_stream_add(dhc_stream_ctrl_t *ctrl, uint32_t bit_stream, uint8_t
     }
 }
 
+// same as the original byte-oriented reader, except bits pending in ctrl->bit_acc (carried
+// over from a previous block) are consumed first, before touching ctrl->stream at all
+static uint32_t dhc_stream_next_bits_get(dhc_stream_ctrl_t *ctrl, uint8_t size)
+{
+    uint8_t remain = size;
+    uint32_t ofs = 0;
+    uint32_t bit_stream = 0;
+    uint8_t take;
+    uint8_t bit;
+
+    if(size == 0)
+        return 0;
+
+    if(ctrl->bit_acc_bits > 0)
+    {
+        take = ctrl->bit_acc_bits < remain ? ctrl->bit_acc_bits : remain;
+        bit_stream = (uint32_t)(ctrl->bit_acc & (((uint64_t)1 << take) - 1));
+        ctrl->bit_acc >>= take;
+        ctrl->bit_acc_bits -= take;
+        remain -= take;
+        ofs = take;
+    }
+
+    while(remain)
+    {
+        bit = (ctrl->stream[ctrl->byte_pos] >> ctrl->bit_pos) & 0x01;
+        bit_stream |= ((uint32_t) bit) << ofs;
+
+        if(++ctrl->bit_pos >= 8)
+        {
+            ctrl->bit_pos = 0;
+            ctrl->byte_pos++;
+        }
+
+        ofs++;
+        remain--;
+    }
+
+    return bit_stream;
+}
+
+static uint32_t dhc_stream_prefix_end_get(dhc_stream_ctrl_t *ctrl)
+{
+    uint32_t token = 0;
+    uint32_t ofs = 0;
+    uint8_t bit;
+
+    do
+    {
+        bit = (uint8_t) dhc_stream_next_bits_get(ctrl,1);
+        token |= (bit << ofs);
+        ofs++;
+
+    } while(bit);
+
+    return token;
+}
+
 static int16_t dhc_index2value(int16_t index, uint8_t bin)
 {
     int16_t value;
@@ -273,67 +345,7 @@ static int16_t dhc_index2value(int16_t index, uint8_t bin)
     return value;
 }
 
-// worst case for a single symbol: num_bits_prefix(14) + num_bits_index(16), see dhc_table[16]
-#define DHC_MAX_SYMBOL_BITS 30
-
-typedef struct dhc_bitsrc_s
-{
-    uint64_t acc;
-    uint8_t acc_bits;
-    uint8_t *data;
-    uint32_t data_bit_pos;
-    uint32_t data_size_bits;
-} dhc_bitsrc_t;
-
-static uint32_t dhc_bitsrc_avail_get(dhc_bitsrc_t *src)
-{
-    return src->acc_bits + (src->data_size_bits - src->data_bit_pos);
-}
-
-static uint32_t dhc_bitsrc_bits_get(dhc_bitsrc_t *src, uint8_t size)
-{
-    uint32_t value = 0;
-    uint8_t got = 0;
-    uint8_t take;
-    uint8_t bit;
-
-    if(src->acc_bits > 0)
-    {
-        take = src->acc_bits < size ? src->acc_bits : size;
-        value |= (uint32_t)(src->acc & (((uint64_t)1 << take) - 1));
-        src->acc >>= take;
-        src->acc_bits -= take;
-        got = take;
-    }
-
-    while(got < size)
-    {
-        bit = (src->data[src->data_bit_pos/8] >> (src->data_bit_pos%8)) & 0x01;
-        value |= ((uint32_t) bit) << got;
-        src->data_bit_pos++;
-        got++;
-    }
-
-    return value;
-}
-
-static uint32_t dhc_bitsrc_prefix_end_get(dhc_bitsrc_t *src)
-{
-    uint32_t token = 0;
-    uint32_t ofs = 0;
-    uint8_t bit;
-
-    do
-    {
-        bit = (uint8_t) dhc_bitsrc_bits_get(src,1);
-        token |= (bit << ofs);
-        ofs++;
-    } while(bit);
-
-    return token;
-}
-
-static int16_t dhc_bitsrc_value_get(dhc_bitsrc_t *src, uint8_t *map)
+static int16_t dhc_stream_next_value_get(dhc_stream_ctrl_t *ctrl, uint8_t *map)
 {
     int16_t index = 0;
     int16_t data = 0;
@@ -341,7 +353,7 @@ static int16_t dhc_bitsrc_value_get(dhc_bitsrc_t *src, uint8_t *map)
     uint8_t bin = 0;
     uint8_t map_bin;
 
-    bit_stream = dhc_bitsrc_bits_get(src,dhc_table[0].num_bits_prefix);
+    bit_stream = dhc_stream_next_bits_get(ctrl,dhc_table[0].num_bits_prefix);
 
     if(bit_stream == dhc_table[0].value_prefix) // 00
     {
@@ -349,7 +361,7 @@ static int16_t dhc_bitsrc_value_get(dhc_bitsrc_t *src, uint8_t *map)
     }
     else
     {
-        bit_stream |= (dhc_bitsrc_bits_get(src,1) << 2);
+        bit_stream |= (dhc_stream_next_bits_get(ctrl,1) << 2);
 
         for(bin = 1 ; bin < 6 ; bin++)
         {
@@ -359,15 +371,33 @@ static int16_t dhc_bitsrc_value_get(dhc_bitsrc_t *src, uint8_t *map)
 
         if(bin >= 6)
         {
-            bit_stream |= (dhc_bitsrc_prefix_end_get(src) << 3);
+            // 110, 1110, 11110 ...
+            // 011, 0111, 01111 ...
+            // 3, 7, F, 1F, 3F ...
+            // +1: 4, 8, 16, 32, 64 ...
+            // log2(): 2, 3, 4, 5, ...
+            // +3: 5, 6, 7, 8 ...
+            bit_stream |= (dhc_stream_prefix_end_get(ctrl) << 3);
             bin = dhc_log2_down_abs(bit_stream + 1) + 3;
         }
     }
 
     map_bin = map ? map[bin] : bin;
 
-    index = dhc_bitsrc_bits_get(src,dhc_table[map_bin].num_bits_index);
+#if DHC_DEBUG == 1
+    dhc_prefix_print(bin);
+    printf(" ");
+    fflush(stdout);
+#endif
+
+    index = dhc_stream_next_bits_get(ctrl,dhc_table[map_bin].num_bits_index);
     data = dhc_index2value(index,map_bin);
+
+#if DHC_DEBUG == 1
+    dhc_index_print(index,dhc_table[map_bin].num_bits_index);
+    printf(" (%d -> %d) (%d -> %d)\r\n",data,index,bin,map_bin);
+    fflush(stdout);
+#endif
 
     return data;
 }
@@ -388,7 +418,7 @@ bool dhc_ctx_init(dhc_ctx_t *ctx, dhc_ctx_dir_t dir, uint8_t *map)
     if(map)
     {
         for(size_t pos = 0 ; pos < DHC_TABLE_SIZE ; pos++)
-            ctx->map_rev[map[pos]] = pos;
+            ctx->map_bin[map[pos]] = pos;
     }
 
     return true;
@@ -397,13 +427,12 @@ bool dhc_ctx_init(dhc_ctx_t *ctx, dhc_ctx_dir_t dir, uint8_t *map)
 bool dhc_block_compress(dhc_ctx_t *ctx, uint8_t *data, uint32_t *data_size_bits,
                          int16_t *samples, uint32_t *sample_size, bool last_block)
 {
-    dhc_stream_ctrl_t ctrl = { 0 };
+    dhc_stream_ctrl_t ctrl =  { 0 };
     uint8_t bin;
-    uint8_t map_bin;
     int16_t index;
     int16_t delta;
-    uint32_t capacity_bits;
-    uint32_t consumed;
+    uint8_t map_bin;
+    uint32_t pos;
     uint32_t total_bits;
     uint32_t full_bytes;
     uint8_t remain_bits;
@@ -414,27 +443,26 @@ bool dhc_block_compress(dhc_ctx_t *ctx, uint8_t *data, uint32_t *data_size_bits,
     if(ctx->dir != DHC_CTX_DIR_COMPRESS)
         return false;
 
-    capacity_bits = *data_size_bits;
-
     dhc_stream_init(&ctrl,data,0,true);
 
     if(ctx->carry_bits > 0)
         dhc_stream_add(&ctrl,ctx->carry_byte,ctx->carry_bits);
 
-    for(consumed = 0 ; consumed < *sample_size ; consumed++)
+    for(pos = 0 ; pos < *sample_size ; pos++)
     {
-        delta = samples[consumed] - ctx->prev_value;
+        delta = samples[pos] - ctx->prev_value;
         bin = dhc_log2_up_abs(delta);
-        map_bin = ctx->map ? ctx->map[bin] : bin;
 
         if(delta >= 0)
             index = delta;
         else
             index = dhc_pow2(bin) - 1 - DHC_ABS(delta);
 
+        map_bin = ctx->map ? ctx->map[bin] : bin;
+
         total_bits = dhc_stream_size_bits_get(&ctrl) + dhc_table[map_bin].num_bits_prefix + dhc_table[bin].num_bits_index;
 
-        if(total_bits > capacity_bits)
+        if(total_bits > *data_size_bits)
             break;
 
 #if DHC_DEBUG == 1
@@ -448,10 +476,10 @@ bool dhc_block_compress(dhc_ctx_t *ctx, uint8_t *data, uint32_t *data_size_bits,
         dhc_stream_add(&ctrl,dhc_table[map_bin].value_prefix,dhc_table[map_bin].num_bits_prefix);
         dhc_stream_add(&ctrl,index,dhc_table[bin].num_bits_index);
 
-        ctx->prev_value = samples[consumed];
+        ctx->prev_value = samples[pos];
     }
 
-    *sample_size = consumed;
+    *sample_size = pos;
 
     total_bits = dhc_stream_size_bits_get(&ctrl);
 
@@ -474,20 +502,20 @@ bool dhc_block_compress(dhc_ctx_t *ctx, uint8_t *data, uint32_t *data_size_bits,
     return true;
 }
 
-bool dhc_compress(uint8_t *data, uint32_t *data_size_bits, int16_t *samples, uint32_t sample_size, uint8_t *map)
+bool dhc_compress(uint8_t *output, uint32_t *output_size_bits, int16_t *data, uint32_t size, uint8_t *map)
 {
     dhc_ctx_t ctx;
-    uint32_t sample_size_var;
+    uint32_t sample_size;
 
-    if((sample_size < 1)||(samples == 0)||(data == 0)||(data_size_bits == 0))
+    if((size < 1)||(data == 0)||(output == 0)||(output_size_bits == 0))
         return false;
 
     dhc_ctx_init(&ctx,DHC_CTX_DIR_COMPRESS,map);
 
-    sample_size_var = sample_size;
-    *data_size_bits = UINT32_MAX;
+    sample_size = size;
+    *output_size_bits = UINT32_MAX;
 
-    return dhc_block_compress(&ctx,data,data_size_bits,samples,&sample_size_var,true);
+    return dhc_block_compress(&ctx,output,output_size_bits,data,&sample_size,true);
 }
 
 float dhc_compress_evaluate(int16_t *data, uint32_t size, uint32_t *compressed_size_in_bits, uint8_t *map)
@@ -517,7 +545,7 @@ float dhc_compress_evaluate(int16_t *data, uint32_t size, uint32_t *compressed_s
         prev_value = data[pos];
         bin = dhc_log2_up_abs(delta);
         dhc_hist_update(hist,bin);
-        
+
         total_bits += 16;
         compressed_bits += dhc_table[bin].num_bits_prefix + dhc_table[bin].num_bits_index;
     }
@@ -571,9 +599,10 @@ float dhc_compress_evaluate(int16_t *data, uint32_t size, uint32_t *compressed_s
 bool dhc_block_decompress(dhc_ctx_t *ctx, int16_t *samples, uint32_t *sample_size,
                            uint8_t *data, uint32_t *data_size_bits, bool last_block)
 {
-    dhc_bitsrc_t src;
-    uint32_t capacity;
-    uint32_t decoded;
+    dhc_stream_ctrl_t ctrl =  { 0 };
+    uint32_t pos = 0;
+    int16_t delta;
+    uint8_t *pmap;
     uint32_t avail;
     uint32_t leftover;
     uint32_t tail;
@@ -586,19 +615,16 @@ bool dhc_block_decompress(dhc_ctx_t *ctx, int16_t *samples, uint32_t *sample_siz
     if(ctx->dir != DHC_CTX_DIR_DECOMPRESS)
         return false;
 
-    capacity = *sample_size;
+    pmap = ctx->map ? ctx->map_bin : 0;
 
-    src.acc = ctx->bit_acc;
-    src.acc_bits = ctx->bit_acc_bits;
-    src.data = data;
-    src.data_bit_pos = 0;
-    src.data_size_bits = *data_size_bits;
+    dhc_stream_init(&ctrl,data,0,false);
+    ctrl.size_bits = *data_size_bits;
+    ctrl.bit_acc = ctx->bit_acc;
+    ctrl.bit_acc_bits = ctx->bit_acc_bits;
 
-    decoded = 0;
-
-    while(decoded < capacity)
+    while(pos < *sample_size)
     {
-        avail = dhc_bitsrc_avail_get(&src);
+        avail = dhc_stream_avail_get(&ctrl);
 
         if(avail == 0)
             break;
@@ -606,28 +632,29 @@ bool dhc_block_decompress(dhc_ctx_t *ctx, int16_t *samples, uint32_t *sample_siz
         if((avail < DHC_MAX_SYMBOL_BITS)&&(!last_block))
             break;
 
-        samples[decoded] = dhc_bitsrc_value_get(&src,ctx->map ? ctx->map_rev : 0) + ctx->prev_value;
-        ctx->prev_value = samples[decoded];
-        decoded++;
+        delta = dhc_stream_next_value_get(&ctrl,pmap);
+        samples[pos] = delta + ctx->prev_value;
+        ctx->prev_value = samples[pos];
+        pos++;
     }
 
-    *sample_size = decoded;
+    *sample_size = pos;
 
-    leftover = dhc_bitsrc_avail_get(&src);
+    leftover = dhc_stream_avail_get(&ctrl);
 
     if(leftover <= DHC_MAX_SYMBOL_BITS)
     {
         ctx->bit_acc = 0;
         ctx->bit_acc_bits = 0;
 
-        while(dhc_bitsrc_avail_get(&src) > 0)
+        while(dhc_stream_avail_get(&ctrl) > 0)
         {
-            bit = (uint8_t) dhc_bitsrc_bits_get(&src,1);
+            bit = (uint8_t) dhc_stream_next_bits_get(&ctrl,1);
             ctx->bit_acc |= ((uint64_t) bit) << ctx->bit_acc_bits;
             ctx->bit_acc_bits++;
         }
 
-        *data_size_bits = src.data_size_bits;
+        *data_size_bits = ctrl.size_bits;
     }
     else
     {
@@ -635,38 +662,38 @@ bool dhc_block_decompress(dhc_ctx_t *ctx, int16_t *samples, uint32_t *sample_siz
         // got full, not because of a lack of bits): close out the current partial byte (if any)
         // into the carry, on top of whatever carry bits were not yet used, so the caller can
         // always resume with data + *data_size_bits/8, with nothing lost or replayed
-        frac = src.data_bit_pos % 8;
+        frac = ctrl.bit_pos;
 
-        ctx->bit_acc = src.acc;
-        ctx->bit_acc_bits = src.acc_bits;
+        ctx->bit_acc = ctrl.bit_acc;
+        ctx->bit_acc_bits = ctrl.bit_acc_bits;
 
         if(frac > 0)
         {
-            tail = dhc_bitsrc_bits_get(&src,8-frac);
+            tail = dhc_stream_next_bits_get(&ctrl,8-frac);
             ctx->bit_acc |= ((uint64_t) tail) << ctx->bit_acc_bits;
             ctx->bit_acc_bits += (8-frac);
         }
 
-        *data_size_bits = src.data_bit_pos;
+        *data_size_bits = dhc_stream_size_bits_get(&ctrl);
     }
 
     return true;
 }
 
-bool dhc_decompress(int16_t *samples, uint32_t *sample_size, uint8_t *data, uint32_t data_size_bits, uint8_t *map)
+bool dhc_decompress(int16_t *output, uint32_t *output_size, uint8_t *data, uint32_t data_size_bits, uint8_t *map)
 {
     dhc_ctx_t ctx;
     uint32_t data_size_bits_var;
 
-    if((data_size_bits < 2)||(samples == 0)||(data == 0)||(sample_size == 0))
+    if((data_size_bits < 2)||(output == 0)||(data == 0))
         return false;
 
     dhc_ctx_init(&ctx,DHC_CTX_DIR_DECOMPRESS,map);
 
     data_size_bits_var = data_size_bits;
-    *sample_size = UINT32_MAX;
+    *output_size = UINT32_MAX;
 
-    return dhc_block_decompress(&ctx,samples,sample_size,data,&data_size_bits_var,true);
+    return dhc_block_decompress(&ctx,output,output_size,data,&data_size_bits_var,true);
 }
 
 /*
@@ -695,7 +722,7 @@ bool dhc_file_write(char *file_name, uint8_t *data, uint32_t size_bits, dhc_comp
         return false;
 
     size = 5;
-        
+
     if(fwrite(header,1,size,fp) == size)
     {
         size = size_bits % 8 == 0 ? size_bits / 8 : size_bits/8 + 1;
